@@ -1,0 +1,302 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// This security rules file assumes the following data structures for
+// the Ranxiu Chinese learning web application (ranxiu-hsk-app):
+//
+// Collection: lessons
+// Document ID: {lessonId} (e.g., 'pinyin-lesson-1', 'hsk1-lesson-1', or custom ID)
+// Fields:
+//   - id: string (required, immutable, <= 120 chars, matches lessonId)
+//   - levelId: string (required, enum: 'pinyin'..'hsk6')
+//   - lessonNumber: number (required, 0..500)
+//   - buoiNumber: number (required, 0..500)
+//   - durationMinutes: number (required, 0..600)
+//   - status: string (required, enum: 'active', 'locked', 'completed')
+//   - titleVi: string (required, 1..300 chars)
+//   - titleZh: string (required, <= 300 chars)
+//   - titlePinyin: string (required, <= 300 chars)
+//   - shortDesc: string (required, <= 1000 chars)
+//   - pills: list (required, <= 20 items)
+//   - flashcards: list (required, <= 500 items)
+//   - readingTexts: list (required, <= 100 items)
+//   - grammarNotes: list (optional, <= 100 items)
+//   - grammarPoints: list (optional, <= 100 items)
+//   - isCustom: bool (optional)
+//   - updatedAt: number | timestamp | string (optional)
+//   - createdAt: number | timestamp | string (optional)
+//
+// Collection: levels
+// Document ID: {levelId} (e.g., 'pinyin', 'hsk1'..'hsk6')
+// Fields:
+//   - id: string (required, immutable, <= 50 chars, matches levelId)
+//   - code: string (required, 1..50 chars)
+//   - title: string (required, 1..200 chars)
+//   - badge: string (required, <= 100 chars)
+//   - status: string (optional, <= 100 chars)
+//   - subtitle: string (required, <= 500 chars)
+//   - bgIconColor: string (required, <= 100 chars)
+//   - tags: list (required, <= 30 items)
+//   - progressPercent: number (required, 0..100)
+//   - updatedAt: number | timestamp | string (optional)
+//
+// Collection: characters
+// Document ID: {charId} (e.g., 'xiaoyu', 'wangyifei', 'baijiayue')
+// Fields:
+//   - id: string (required, immutable, <= 100 chars, matches charId)
+//   - nameZh: string (required, 1..100 chars)
+//   - namePinyin: string (required, 1..150 chars)
+//   - nameVi: string (required, 1..150 chars)
+//   - role: string (required, 1..500 chars)
+//   - scene: string (required, enum: 'overseas', 'china', 'ai')
+//   - avatar: string (required, 1..500 chars)
+//   - updatedAt: number | timestamp | string (optional)
+//
+// Collection: audio_media
+// Document ID: {mediaId}
+// Fields:
+//   - id: string (required, immutable, <= 150 chars, matches mediaId)
+//   - lessonId: string (required, 1..120 chars)
+//   - targetId: string (optional, <= 150 chars)
+//   - targetType: string (optional, <= 50 chars)
+//   - fileName: string (optional, <= 255 chars)
+//   - mimeType: string (optional, <= 100 chars)
+//   - audioDataUri: string (required, 1..950000 chars)
+//   - updatedAt: number | timestamp | string (optional)
+//   - createdAt: number | timestamp | string (optional)
+//
+// Collection: system_config
+// Document ID: {configId} (e.g., 'teacher_auth')
+// Fields:
+//   - id: string (required, immutable, <= 50 chars, matches configId)
+//   - username: string (required, 1..100 chars)
+//   - passwordHash: string (required, 1..150 chars)
+//   - updatedAt: number | timestamp | string (optional)
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) ||
+        (isAuthenticated() && request.resource.data.uid == request.auth.uid);
+    }
+
+    function uidNotModified() {
+      return !('uid' in request.resource.data) ||
+        request.resource.data.uid == resource.data.uid;
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    function isValidList(list, maxSize) {
+      return list is list && list.size() <= maxSize;
+    }
+
+    function isValidOptionalTimestampOrNumber(data, field) {
+      return !(field in data) ||
+        data[field] is number ||
+        data[field] is timestamp ||
+        (data[field] is string && data[field].size() <= 100);
+    }
+
+    // ===============================================================
+    // Domain Validators (Used in BOTH create and update)
+    // ===============================================================
+
+    function isValidLesson(data, lessonId) {
+      let allowedFields = [
+        'id', 'levelId', 'lessonNumber', 'buoiNumber', 'durationMinutes',
+        'status', 'titleVi', 'titleZh', 'titlePinyin', 'shortDesc',
+        'pills', 'flashcards', 'readingTexts', 'grammarNotes', 'grammarPoints',
+        'isCustom', 'updatedAt', 'createdAt'
+      ];
+      let requiredFields = [
+        'id', 'levelId', 'lessonNumber', 'buoiNumber', 'durationMinutes',
+        'status', 'titleVi', 'titleZh', 'titlePinyin', 'shortDesc',
+        'pills', 'flashcards', 'readingTexts'
+      ];
+      return hasOnlyAllowedFields(allowedFields) &&
+        hasRequiredFields(requiredFields) &&
+        data.id is string && data.id.size() > 0 && data.id.size() <= 120 &&
+        data.id == lessonId &&
+        data.levelId in ['pinyin', 'hsk1', 'hsk2', 'hsk3', 'hsk4', 'hsk5', 'hsk6'] &&
+        data.lessonNumber is number && data.lessonNumber >= 0 && data.lessonNumber <= 500 &&
+        data.buoiNumber is number && data.buoiNumber >= 0 && data.buoiNumber <= 500 &&
+        data.durationMinutes is number && data.durationMinutes >= 0 && data.durationMinutes <= 600 &&
+        data.status in ['active', 'locked', 'completed'] &&
+        data.titleVi is string && data.titleVi.size() > 0 && data.titleVi.size() <= 300 &&
+        data.titleZh is string && data.titleZh.size() <= 300 &&
+        data.titlePinyin is string && data.titlePinyin.size() <= 300 &&
+        data.shortDesc is string && data.shortDesc.size() <= 1000 &&
+        isValidList(data.pills, 20) &&
+        isValidList(data.flashcards, 500) &&
+        isValidList(data.readingTexts, 100) &&
+        (!('grammarNotes' in data) || isValidList(data.grammarNotes, 100)) &&
+        (!('grammarPoints' in data) || isValidList(data.grammarPoints, 100)) &&
+        (!('isCustom' in data) || data.isCustom is bool) &&
+        isValidOptionalTimestampOrNumber(data, 'updatedAt') &&
+        isValidOptionalTimestampOrNumber(data, 'createdAt');
+    }
+
+    function isValidLevel(data, levelId) {
+      let allowedFields = [
+        'id', 'code', 'title', 'badge', 'status',
+        'subtitle', 'bgIconColor', 'tags', 'progressPercent', 'updatedAt'
+      ];
+      let requiredFields = [
+        'id', 'code', 'title', 'badge',
+        'subtitle', 'bgIconColor', 'tags', 'progressPercent'
+      ];
+      return hasOnlyAllowedFields(allowedFields) &&
+        hasRequiredFields(requiredFields) &&
+        data.id is string && data.id.size() > 0 && data.id.size() <= 50 &&
+        data.id == levelId &&
+        data.code is string && data.code.size() > 0 && data.code.size() <= 50 &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+        data.badge is string && data.badge.size() <= 100 &&
+        (!('status' in data) || (data.status is string && data.status.size() <= 100)) &&
+        data.subtitle is string && data.subtitle.size() <= 500 &&
+        data.bgIconColor is string && data.bgIconColor.size() <= 100 &&
+        isValidList(data.tags, 30) &&
+        data.progressPercent is number && data.progressPercent >= 0 && data.progressPercent <= 100 &&
+        isValidOptionalTimestampOrNumber(data, 'updatedAt');
+    }
+
+    function isValidCharacter(data, charId) {
+      let allowedFields = [
+        'id', 'nameZh', 'namePinyin', 'nameVi',
+        'role', 'scene', 'avatar', 'updatedAt'
+      ];
+      let requiredFields = [
+        'id', 'nameZh', 'namePinyin', 'nameVi',
+        'role', 'scene', 'avatar'
+      ];
+      return hasOnlyAllowedFields(allowedFields) &&
+        hasRequiredFields(requiredFields) &&
+        data.id is string && data.id.size() > 0 && data.id.size() <= 100 &&
+        data.id == charId &&
+        data.nameZh is string && data.nameZh.size() > 0 && data.nameZh.size() <= 100 &&
+        data.namePinyin is string && data.namePinyin.size() > 0 && data.namePinyin.size() <= 150 &&
+        data.nameVi is string && data.nameVi.size() > 0 && data.nameVi.size() <= 150 &&
+        data.role is string && data.role.size() > 0 && data.role.size() <= 500 &&
+        data.scene in ['overseas', 'china', 'ai'] &&
+        data.avatar is string && data.avatar.size() > 0 && data.avatar.size() <= 500 &&
+        isValidOptionalTimestampOrNumber(data, 'updatedAt');
+    }
+
+    function isValidAudioMedia(data, mediaId) {
+      let allowedFields = [
+        'id', 'lessonId', 'targetId', 'targetType',
+        'fileName', 'mimeType', 'audioDataUri', 'updatedAt', 'createdAt'
+      ];
+      let requiredFields = [
+        'id', 'lessonId', 'audioDataUri'
+      ];
+      return hasOnlyAllowedFields(allowedFields) &&
+        hasRequiredFields(requiredFields) &&
+        data.id is string && data.id.size() > 0 && data.id.size() <= 150 &&
+        data.id == mediaId &&
+        data.lessonId is string && data.lessonId.size() > 0 && data.lessonId.size() <= 120 &&
+        (!('targetId' in data) || (data.targetId is string && data.targetId.size() <= 150)) &&
+        (!('targetType' in data) || (data.targetType is string && data.targetType.size() <= 50)) &&
+        (!('fileName' in data) || (data.fileName is string && data.fileName.size() <= 255)) &&
+        (!('mimeType' in data) || (data.mimeType is string && data.mimeType.size() <= 100)) &&
+        data.audioDataUri is string && data.audioDataUri.size() > 0 && data.audioDataUri.size() <= 950000 &&
+        isValidOptionalTimestampOrNumber(data, 'updatedAt') &&
+        isValidOptionalTimestampOrNumber(data, 'createdAt');
+    }
+
+    function isValidSystemConfig(data, configId) {
+      let allowedFields = ['id', 'username', 'passwordHash', 'updatedAt'];
+      let requiredFields = ['id', 'username', 'passwordHash'];
+      return hasOnlyAllowedFields(allowedFields) &&
+        hasRequiredFields(requiredFields) &&
+        data.id is string && data.id.size() > 0 && data.id.size() <= 50 &&
+        data.id == configId &&
+        data.username is string && data.username.size() > 0 && data.username.size() <= 100 &&
+        data.passwordHash is string && data.passwordHash.size() > 0 && data.passwordHash.size() <= 150 &&
+        isValidOptionalTimestampOrNumber(data, 'updatedAt');
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    // HSK & Pinyin Lessons
+    match /lessons/{lessonId} {
+      allow read: if true;
+      allow create: if isValidLesson(request.resource.data, lessonId);
+      allow update: if isValidLesson(request.resource.data, lessonId) &&
+        areImmutableFieldsUnchanged(['id']);
+      allow delete: if true;
+    }
+
+    // HSK Level Metadata
+    match /levels/{levelId} {
+      allow read: if true;
+      allow create: if isValidLevel(request.resource.data, levelId);
+      allow update: if isValidLevel(request.resource.data, levelId) &&
+        areImmutableFieldsUnchanged(['id']);
+      allow delete: if false;
+    }
+
+    // New HSK 1 Textbook Characters
+    match /characters/{charId} {
+      allow read: if true;
+      allow create: if isValidCharacter(request.resource.data, charId);
+      allow update: if isValidCharacter(request.resource.data, charId) &&
+        areImmutableFieldsUnchanged(['id']);
+      allow delete: if false;
+    }
+
+    // Teacher-uploaded / Recorded Audio Media
+    match /audio_media/{mediaId} {
+      allow read: if true;
+      allow create: if isValidAudioMedia(request.resource.data, mediaId);
+      allow update: if isValidAudioMedia(request.resource.data, mediaId) &&
+        areImmutableFieldsUnchanged(['id']);
+      allow delete: if true;
+    }
+
+    // Single-teacher authentication and configuration
+    match /system_config/{configId} {
+      allow read: if true;
+      allow create: if isValidSystemConfig(request.resource.data, configId);
+      allow update: if isValidSystemConfig(request.resource.data, configId) &&
+        areImmutableFieldsUnchanged(['id']);
+      allow delete: if false;
+    }
+
+    // Default deny for all other paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

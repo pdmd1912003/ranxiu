@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Production build output
+dist/
+build/
+coverage/
+
+# Environment and sensitive credential files (Never commit to Git)
+.env
+.env.*
+!.env.example
+
+# Firebase cache and debug logs
+.firebase/
+.firebaserc.local
+firebase-debug.log*
+firestore-debug.log*
+
+# Editor, OS and IDE artifacts
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/
+.agents/

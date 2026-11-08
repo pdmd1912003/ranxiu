@@ -1,0 +1,12 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /audio/{allPaths=**} {
+      // Cho phép tất cả người học nghe và tải audio bài học
+      allow read: if true;
+      // Cho phép tải lên file âm thanh dưới 30MB
+      allow write: if request.resource.size < 30 * 1024 * 1024
+                   && (request.resource.contentType.matches('audio/.*') || request.resource.contentType == 'application/octet-stream');
+    }
+  }
+}
