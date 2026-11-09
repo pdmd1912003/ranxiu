@@ -233,8 +233,28 @@ export default function App() {
     setIsTeacherModalOpen(true);
   };
 
-  const handleOpenEditCard = (card: FlashCard, levelId: LevelId, lessonId: string) => {
-    setEditTarget({ type: 'flashcard', card, levelId, lessonId });
+  const handleOpenEditCard = (
+    card: FlashCard,
+    levelId: LevelId,
+    lessonId: string,
+    readingTextId?: string
+  ) => {
+    setEditTarget({ type: 'flashcard', card, levelId, lessonId, readingTextId });
+  };
+
+  const handleOpenAddCardToReadingText = (
+    levelId: LevelId,
+    lessonId: string,
+    readingTextId?: string,
+    readingTextTitle?: string
+  ) => {
+    setEditTarget({
+      type: 'add-flashcard',
+      levelId,
+      lessonId,
+      readingTextId,
+      readingTextTitle,
+    });
   };
 
   const handleOpenEditText = (readingText: ReadingText, levelId: LevelId, lessonId: string) => {
@@ -390,6 +410,7 @@ export default function App() {
             onSelectTabChange={(tab) => setInitialLessonTab(tab)}
             onOpenTeacherModal={(lvl, lesId) => handleOpenTeacherModal(lvl, lesId)}
             onEditCard={handleOpenEditCard}
+            onAddCardToReadingText={handleOpenAddCardToReadingText}
             onEditText={handleOpenEditText}
             onUpdateTextAudio={handleUpdateTextAudio}
             isSlideModeActive={isSlideModeActive}

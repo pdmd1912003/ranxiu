@@ -179,13 +179,8 @@ export const YctDialogueAudioBar: React.FC<YctDialogueAudioBarProps> = ({
     }
   };
 
-  // Xoá audio riêng để quay về giọng đọc mặc định
+  // Xoá audio riêng để quay về giọng đọc mặc định (không hiện confirm của trình duyệt)
   const handleClearAudio = async () => {
-    const ok = window.confirm(
-      `Bạn có chắc muốn xóa file audio riêng của "${dialogue.title}" và quay về giọng đọc mặc định?`
-    );
-    if (!ok) return;
-
     stopPlayback();
     setMediaUrlInput('');
     await setCustomAudio(slotKey, null);

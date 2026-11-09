@@ -5,6 +5,7 @@ import {
   FileText,
   CreditCard,
   PlusCircle,
+  Plus,
   Presentation,
   List,
   Sparkles,
@@ -77,26 +78,36 @@ export function groupFlashcardsByReadingText(
 
     let matchedIdx = -1;
 
-    // 1. Direct match: cleanHanzi appears in reading text sentences
-    if (cleanHanzi) {
+    // 0. Explicit assignment: if teacher assigned card.readingTextId to a specific Bài khóa
+    if (card.readingTextId) {
+      matchedIdx = groups.findIndex((g) => g.id === card.readingTextId);
+    }
+
+    // 1. Exact Example Sentence match: if card's example sentence matches an exact sentence in a Bài khóa
+    if (matchedIdx === -1 && cleanExample) {
+      matchedIdx = textMatchers.findIndex((m) =>
+        m.sentenceList.some((s) => s.hanzi.replace(/\([^)]*\)/g, '').trim() === cleanExample)
+      );
+    }
+
+    // 2. Direct match: cleanHanzi appears in reading text sentences
+    if (matchedIdx === -1 && cleanHanzi) {
       matchedIdx = textMatchers.findIndex((m) => m.combinedSentenceText.includes(cleanHanzi));
     }
 
-    // 2. Example sentence match: example sentence matches reading text sentence
+    // 3. Partial Example sentence match
     if (matchedIdx === -1 && cleanExample) {
       matchedIdx = textMatchers.findIndex(
         (m) =>
           m.combinedSentenceText.includes(cleanExample) ||
           cleanExample.includes(m.combinedSentenceText) ||
           m.sentenceList.some(
-            (s) =>
-              s.hanzi.includes(cleanExample) ||
-              cleanExample.includes(s.hanzi)
+            (s) => s.hanzi.includes(cleanExample) || cleanExample.includes(s.hanzi)
           )
       );
     }
 
-    // 3. Fallback: all individual characters appear in text
+    // 4. Fallback: all individual characters appear in text
     if (matchedIdx === -1 && cleanHanzi.length > 1) {
       const chars = Array.from(cleanHanzi);
       matchedIdx = textMatchers.findIndex((m) =>
@@ -111,7 +122,8 @@ export function groupFlashcardsByReadingText(
     }
   });
 
-  const result: ReadingTextVocabGroup[] = groups.filter((g) => g.cards.length > 0);
+  // Giữ tất cả các nhóm Bài khóa (kể cả khi tạm thời có 0 từ) để giáo viên luôn có thể bấm "+ Thêm từ vựng"
+  const result: ReadingTextVocabGroup[] = [...groups];
 
   if (unassignedCards.length > 0) {
     result.push({
@@ -146,9 +158,25 @@ interface LessonDetailViewProps {
   onOpenTeacherModal: (levelId: LevelId, lessonId?: string) => void;
   isSlideModeActive: boolean;
   onToggleSlideMode: () => void;
-  onEditCard?: (card: FlashCard, levelId: LevelId, lessonId: string) => void;
+  onEditCard?: (
+    card: FlashCard,
+    levelId: LevelId,
+    lessonId: string,
+    readingTextId?: string
+  ) => void;
+  onAddCardToReadingText?: (
+    levelId: LevelId,
+    lessonId: string,
+    readingTextId?: string,
+    readingTextTitle?: string
+  ) => void;
   onEditText?: (text: ReadingText, levelId: LevelId, lessonId: string) => void;
-  onUpdateTextAudio?: (levelId: LevelId, lessonId: string, textId: string, updatedFields: Partial<ReadingText>) => void;
+  onUpdateTextAudio?: (
+    levelId: LevelId,
+    lessonId: string,
+    textId: string,
+    updatedFields: Partial<ReadingText>
+  ) => void;
   onShowStroke?: (char: string) => void;
 }
 
@@ -164,6 +192,7 @@ export const LessonDetailView: React.FC<LessonDetailViewProps> = ({
   isSlideModeActive,
   onToggleSlideMode,
   onEditCard,
+  onAddCardToReadingText,
   onEditText,
   onUpdateTextAudio,
   onShowStroke,
@@ -206,7 +235,10 @@ export const LessonDetailView: React.FC<LessonDetailViewProps> = ({
 
   const vocabGroups = useMemo(() => {
     if (!currentLesson) return [];
-    return groupFlashcardsByReadingText(currentLesson.flashcards || [], currentLesson.readingTexts || []);
+    return groupFlashcardsByReadingText(
+      currentLesson.flashcards || [],
+      currentLesson.readingTexts || []
+    );
   }, [currentLesson]);
 
   const displayedVocabGroups = useMemo(() => {
@@ -291,9 +323,7 @@ export const LessonDetailView: React.FC<LessonDetailViewProps> = ({
                 </span>
               )}
             </div>
-            <h1 className="text-2xl font-black text-black mt-0.5">
-              {currentLesson.titleVi}
-            </h1>
+            <h1 className="text-2xl font-black text-black mt-0.5">{currentLesson.titleVi}</h1>
             {currentLesson.titlePinyin && (
               <p className="text-xs font-mono font-bold text-emerald-800 mt-0.5">
                 {currentLesson.titlePinyin}
@@ -428,7 +458,8 @@ export const LessonDetailView: React.FC<LessonDetailViewProps> = ({
           onOpenTeacherModal={() => onOpenTeacherModal(levelInfo.id, currentLesson.id)}
           onEditText={(txt) => onEditText && onEditText(txt, levelInfo.id, currentLesson.id)}
           onUpdateTextAudio={(textId, updatedFields) =>
-            onUpdateTextAudio && onUpdateTextAudio(levelInfo.id, currentLesson.id, textId, updatedFields)
+            onUpdateTextAudio &&
+            onUpdateTextAudio(levelInfo.id, currentLesson.id, textId, updatedFields)
           }
           onShowStroke={onShowStroke}
         />
@@ -511,9 +542,7 @@ export const LessonDetailView: React.FC<LessonDetailViewProps> = ({
                       <div className="w-7 h-7 rounded-lg bg-[#DCFCE7] border border-black flex items-center justify-center text-xs shrink-0">
                         <BookOpen className="w-3.5 h-3.5 text-black" />
                       </div>
-                      <h4 className="font-black text-black text-base">
-                        {group.title}
-                      </h4>
+                      <h4 className="font-black text-black text-base">{group.title}</h4>
                       {group.titleZh && (
                         <span className="font-hanzi text-sm text-zinc-600 font-normal">
                           ({group.titleZh})
@@ -530,16 +559,36 @@ export const LessonDetailView: React.FC<LessonDetailViewProps> = ({
                     )}
                   </div>
 
-                  {group.readingText && (
-                    <button
-                      onClick={() => handleSwitchTab('reading')}
-                      className="cute-btn px-3 py-1.5 bg-white hover:bg-emerald-100 text-black text-xs font-black rounded-xl border-2 border-black flex items-center gap-1.5 shrink-0 self-start sm:self-auto shadow-[1px_1px_0px_#000]"
-                      title="Chuyển sang xem bài khóa tương ứng"
-                    >
-                      <BookOpen className="w-3.5 h-3.5" />
-                      <span>Xem bài khóa</span>
-                    </button>
-                  )}
+                  <div className="flex flex-wrap items-center gap-2 shrink-0 self-start sm:self-auto">
+                    {onAddCardToReadingText && (
+                      <button
+                        onClick={() =>
+                          onAddCardToReadingText(
+                            levelInfo.id,
+                            currentLesson.id,
+                            group.readingText?.id,
+                            group.title
+                          )
+                        }
+                        className="cute-btn px-3 py-1.5 bg-[#FCE7F3] hover:bg-pink-200 text-black text-xs font-black rounded-xl border-2 border-black flex items-center gap-1.5 shadow-[1px_1px_0px_#000] cursor-pointer"
+                        title={`Thêm từ vựng còn thiếu vào ${group.title}`}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Thêm từ vựng</span>
+                      </button>
+                    )}
+
+                    {group.readingText && (
+                      <button
+                        onClick={() => handleSwitchTab('reading')}
+                        className="cute-btn px-3 py-1.5 bg-white hover:bg-emerald-100 text-black text-xs font-black rounded-xl border-2 border-black flex items-center gap-1.5 shadow-[1px_1px_0px_#000] cursor-pointer"
+                        title="Chuyển sang xem bài khóa tương ứng"
+                      >
+                        <BookOpen className="w-3.5 h-3.5" />
+                        <span>Xem bài khóa</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Phát Audio từ vựng riêng biệt cho bài khóa này (tách biệt hoàn toàn với audio bài khóa) */}
@@ -552,120 +601,160 @@ export const LessonDetailView: React.FC<LessonDetailViewProps> = ({
                     cards={group.cards}
                     onUpdateTextAudio={(fields) =>
                       onUpdateTextAudio &&
-                      onUpdateTextAudio(levelInfo.id, currentLesson.id, group.readingText!.id, fields)
+                      onUpdateTextAudio(
+                        levelInfo.id,
+                        currentLesson.id,
+                        group.readingText!.id,
+                        fields
+                      )
                     }
                   />
                 )}
 
                 {/* Vocabulary Cards List */}
-                <div className="divide-y-2 divide-black/10">
-                  {group.cards.map((card, idx) => {
-                    const cleanHanzi = card.hanzi.replace(/\([^)]*\)/g, '').trim();
-                    return (
-                      <div
-                        key={card.id}
-                        className="p-4 sm:px-6 hover:bg-[#FAF6EE]/60 transition-colors flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+                {group.cards.length === 0 ? (
+                  <div className="p-6 text-center space-y-2.5 bg-white">
+                    <p className="text-xs font-bold text-zinc-500">
+                      Chưa có từ vựng nào trong phần này.
+                    </p>
+                    {onAddCardToReadingText && (
+                      <button
+                        onClick={() =>
+                          onAddCardToReadingText(
+                            levelInfo.id,
+                            currentLesson.id,
+                            group.readingText?.id,
+                            group.title
+                          )
+                        }
+                        className="cute-btn px-3.5 py-1.5 bg-[#DCFCE7] hover:bg-emerald-200 text-black text-xs font-black rounded-xl border-2 border-black inline-flex items-center gap-1.5 cursor-pointer"
                       >
-                        <div className="space-y-2 flex-1">
-                          <div className="flex flex-wrap items-center gap-3">
-                            <span className="w-6 h-6 rounded-lg bg-black text-white font-mono text-xs font-black flex items-center justify-center shrink-0">
-                              {idx + 1}
-                            </span>
-
-                            {/* Bấm vào từ sẽ mở Flashcard chạy cùng lúc các chữ Hán */}
-                            <button
-                              type="button"
-                              onClick={() => setActiveFlashcardWord(card)}
-                              className="font-hanzi text-3xl font-normal text-black hover:text-emerald-700 hover:scale-105 transition-all text-left cursor-pointer rounded-lg px-1 hover:bg-[#DCFCE7]/60"
-                              title="Bấm để mở flashcard xem nét viết cả từ"
-                            >
-                              {card.hanzi}
-                            </button>
-
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-mono text-sm font-black text-emerald-950 bg-[#DCFCE7] border border-black/40 px-2.5 py-0.5 rounded-lg">
-                                {card.pinyin}
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Thêm từ vựng cho {group.title}</span>
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="divide-y-2 divide-black/10">
+                    {group.cards.map((card, idx) => {
+                      const cleanHanzi = card.hanzi.replace(/\([^)]*\)/g, '').trim();
+                      return (
+                        <div
+                          key={card.id}
+                          className="p-4 sm:px-6 hover:bg-[#FAF6EE]/60 transition-colors flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+                        >
+                          <div className="space-y-2 flex-1">
+                            <div className="flex flex-wrap items-center gap-3">
+                              <span className="w-6 h-6 rounded-lg bg-black text-white font-mono text-xs font-black flex items-center justify-center shrink-0">
+                                {idx + 1}
                               </span>
-                              <span className="text-xs text-zinc-700 font-bold bg-[#FAF6EE] border border-black/25 px-2 py-0.5 rounded-lg">
-                                {card.wordType}
-                              </span>
-                              {card.hanViet && (
-                                <span className="text-xs text-pink-950 font-bold bg-[#FCE7F3] border border-black/30 px-2 py-0.5 rounded-lg">
-                                  Hán Việt: {card.hanViet}
-                                </span>
-                              )}
-                            </div>
-                          </div>
 
-                          <div className="text-sm font-black text-zinc-900 pl-9">
-                            Nghĩa: {card.meaning}
-                          </div>
-
-                          {/* Full Example Sentence */}
-                          {card.exampleSentence && card.exampleSentence.hanzi && (
-                            <div className="ml-9 p-3 rounded-xl bg-[#FAF6EE] border border-black/15 flex items-center justify-between gap-3">
-                              <div className="space-y-0.5 text-xs">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <span className="text-[11px] font-black text-black bg-[#DCFCE7] border border-black/30 px-1.5 py-0.5 rounded">
-                                    Ví dụ
-                                  </span>
-                                  <HanziClickable
-                                    text={card.exampleSentence.hanzi}
-                                    onShowStroke={onShowStroke || (() => {})}
-                                    className="font-hanzi text-base text-black"
-                                  />
-                                  <span className="font-mono text-emerald-800 font-bold">
-                                    ({card.exampleSentence.pinyin})
-                                  </span>
-                                </div>
-                                <p className="text-zinc-600 font-medium">
-                                  — {card.exampleSentence.meaning}
-                                </p>
-                              </div>
+                              {/* Bấm vào từ sẽ mở Flashcard chạy cùng lúc các chữ Hán */}
                               <button
-                                onClick={() => playChineseAudio(card.exampleSentence.hanzi)}
-                                className="p-2 rounded-xl bg-[#FCE7F3] hover:bg-pink-200 border border-black/40 shrink-0"
-                                title="Nghe câu ví dụ"
+                                type="button"
+                                onClick={() => setActiveFlashcardWord(card)}
+                                className="font-hanzi text-3xl font-normal text-black hover:text-emerald-700 hover:scale-105 transition-all text-left cursor-pointer rounded-lg px-1 hover:bg-[#DCFCE7]/60"
+                                title="Bấm để mở flashcard xem nét viết cả từ"
                               >
-                                <Volume2 className="w-3.5 h-3.5 text-black" />
+                                {card.hanzi}
                               </button>
+
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-mono text-sm font-black text-emerald-950 bg-[#DCFCE7] border border-black/40 px-2.5 py-0.5 rounded-lg">
+                                  {card.pinyin}
+                                </span>
+                                <span className="text-xs text-zinc-700 font-bold bg-[#FAF6EE] border border-black/25 px-2 py-0.5 rounded-lg">
+                                  {card.wordType}
+                                </span>
+                                {card.hanViet && (
+                                  <span className="text-xs text-pink-950 font-bold bg-[#FCE7F3] border border-black/30 px-2 py-0.5 rounded-lg">
+                                    Hán Việt: {card.hanViet}
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                          )}
-                        </div>
 
-                        {/* Action Buttons per word */}
-                        <div className="flex flex-wrap items-center gap-2 pl-9 lg:pl-0 shrink-0">
-                          <button
-                            onClick={() => setActiveFlashcardWord(card)}
-                            className="cute-btn flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black bg-[#DCFCE7] hover:bg-emerald-200 text-black border-2 border-black"
-                            title="Mở flashcard viết nét toàn bộ từ"
-                          >
-                            <Brush className="w-3.5 h-3.5" />
-                            <span>Tập viết</span>
-                          </button>
+                            <div className="text-sm font-black text-zinc-900 pl-9">
+                              Nghĩa: {card.meaning}
+                            </div>
 
-                          {onEditCard && (
+                            {/* Full Example Sentence */}
+                            {card.exampleSentence && card.exampleSentence.hanzi && (
+                              <div className="ml-9 p-3 rounded-xl bg-[#FAF6EE] border border-black/15 flex items-center justify-between gap-3">
+                                <div className="space-y-0.5 text-xs">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-[11px] font-black text-black bg-[#DCFCE7] border border-black/30 px-1.5 py-0.5 rounded">
+                                      Ví dụ
+                                    </span>
+                                    <HanziClickable
+                                      text={card.exampleSentence.hanzi}
+                                      onShowStroke={onShowStroke || (() => {})}
+                                      className="font-hanzi text-base text-black"
+                                    />
+                                    <span className="font-mono text-emerald-800 font-bold">
+                                      ({card.exampleSentence.pinyin})
+                                    </span>
+                                  </div>
+                                  <p className="text-zinc-600 font-medium">
+                                    — {card.exampleSentence.meaning}
+                                  </p>
+                                </div>
+                                <button
+                                  onClick={() => playChineseAudio(card.exampleSentence.hanzi)}
+                                  className="p-2 rounded-xl bg-[#FCE7F3] hover:bg-pink-200 border border-black/40 shrink-0"
+                                  title="Nghe câu ví dụ"
+                                >
+                                  <Volume2 className="w-3.5 h-3.5 text-black" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Action Buttons per word */}
+                          <div className="flex flex-wrap items-center gap-2 pl-9 lg:pl-0 shrink-0">
                             <button
-                              onClick={() => onEditCard(card, levelInfo.id, currentLesson.id)}
-                              className="cute-btn flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold bg-white hover:bg-[#FAF6EE] text-black border-2 border-black"
+                              onClick={() => setActiveFlashcardWord(card)}
+                              className="cute-btn flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black bg-[#DCFCE7] hover:bg-emerald-200 text-black border-2 border-black"
+                              title="Mở flashcard viết nét toàn bộ từ"
                             >
-                              <Pencil className="w-3.5 h-3.5" />
-                              <span>Sửa</span>
+                              <Brush className="w-3.5 h-3.5" />
+                              <span>Tập viết</span>
                             </button>
-                          )}
 
-                          <button
-                            onClick={() => playChineseAudio(cleanHanzi, { customAudioUri: card.audioDataUri })}
-                            className="cute-btn flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black bg-[#FCE7F3] hover:bg-pink-200 text-black border-2 border-black"
-                          >
-                            <Volume2 className="w-3.5 h-3.5" />
-                            <span>Nghe</span>
-                          </button>
+                            {onEditCard && (
+                              <button
+                                onClick={() =>
+                                  onEditCard(
+                                    card,
+                                    levelInfo.id,
+                                    currentLesson.id,
+                                    group.readingText?.id
+                                  )
+                                }
+                                className="cute-btn flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold bg-white hover:bg-[#FAF6EE] text-black border-2 border-black"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                                <span>Sửa</span>
+                              </button>
+                            )}
+
+                            <button
+                              onClick={() =>
+                                playChineseAudio(cleanHanzi, {
+                                  customAudioUri: card.audioDataUri,
+                                })
+                              }
+                              className="cute-btn flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black bg-[#FCE7F3] hover:bg-pink-200 text-black border-2 border-black"
+                            >
+                              <Volume2 className="w-3.5 h-3.5" />
+                              <span>Nghe</span>
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -675,10 +764,7 @@ export const LessonDetailView: React.FC<LessonDetailViewProps> = ({
       {activeTab === 'grammar' && grammarList.length > 0 && (
         <div className="space-y-4">
           {grammarList.map((note, idx) => (
-            <div
-              key={note.id || idx}
-              className="cute-card p-6 space-y-3"
-            >
+            <div key={note.id || idx} className="cute-card p-6 space-y-3">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-black px-2.5 py-0.5 rounded-md bg-[#DCFCE7] border border-black text-black">
                   Điểm ngữ pháp {idx + 1}
@@ -701,9 +787,7 @@ export const LessonDetailView: React.FC<LessonDetailViewProps> = ({
 
               {note.examples && note.examples.length > 0 && (
                 <div className="space-y-2 pt-2">
-                  <span className="text-xs font-black text-zinc-700 block">
-                    Câu ví dụ:
-                  </span>
+                  <span className="text-xs font-black text-zinc-700 block">Câu ví dụ:</span>
                   {note.examples.map((ex, eIdx) => {
                     const zhText = ex.zh || ex.hanzi || '';
                     const viText = ex.vi || ex.meaning || '';
@@ -723,9 +807,7 @@ export const LessonDetailView: React.FC<LessonDetailViewProps> = ({
                               {ex.pinyin}
                             </span>
                           </div>
-                          <div className="text-zinc-600 font-medium">
-                            — {viText}
-                          </div>
+                          <div className="text-zinc-600 font-medium">— {viText}</div>
                         </div>
                         <button
                           onClick={() => playChineseAudio(zhText)}

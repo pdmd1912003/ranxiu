@@ -30,6 +30,7 @@ export interface FlashCard {
   exampleSentence: ExampleSentence;
   levelId: LevelId;
   lessonId: string;
+  readingTextId?: string;
   customAudioUrl?: string;
   audioDataUri?: string;
   isCustom?: boolean;
@@ -120,4 +121,3 @@ export interface TeacherSession {
   loginAt: number;
   rememberMe: boolean;
 }
-

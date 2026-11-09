@@ -222,7 +222,7 @@ export const ReadingTextAudioBar: React.FC<ReadingTextAudioBarProps> = ({
       showToast(`Đã lưu "${file.name}" cho ${isVocabMode ? 'từ vựng bài khóa' : 'bài khóa'}!`);
       setIsMediaPanelOpen(false);
     } catch (err: any) {
-      alert(err?.message || 'Không thể lưu file âm thanh.');
+      showToast(err?.message || 'Không thể lưu file âm thanh.');
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) {
@@ -305,17 +305,14 @@ export const ReadingTextAudioBar: React.FC<ReadingTextAudioBarProps> = ({
         await recorderRef.current.start();
         setIsRecording(true);
       } catch (err: any) {
-        alert('Không thể truy cập Microphone: ' + (err.message || 'Lỗi'));
+        showToast('Không thể truy cập Microphone: ' + (err.message || 'Lỗi'));
       }
     }
   };
 
-  // Clear / Delete Custom Audio
+  // Clear / Delete Custom Audio (không hiển thị alert/confirm của trình duyệt)
   const handleClearAudio = async () => {
     if (!onUpdateTextAudio) return;
-    const itemType = isVocabMode ? 'từ vựng của bài khóa này' : 'bài khóa này';
-    const ok = window.confirm(`Bạn có chắc muốn xóa file audio riêng của ${itemType} và quay về giọng đọc mặc định?`);
-    if (!ok) return;
 
     stopPlayback();
     setResolvedAudioSrc(null);

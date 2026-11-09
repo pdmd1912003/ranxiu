@@ -19,6 +19,10 @@ const CHUNK_CHAR_SIZE = 650000; // ~650KB per Firestore document (safely below 1
 // In-memory fast cache for resolved audio Data URIs keyed by mediaId (`${lessonId}_${targetId}`)
 const audioMemoryCache = new Map<string, string>();
 
+// In-memory authoritative lessons cache so consecutive edits/deletes never resurrect deleted items
+// even if localStorage hits its 5MB quota or before Firestore snapshot round-trips
+let lessonsMemoryCache: Lesson[] | null = null;
+
 // ===============================================================
 // IndexedDB Helper for Large Audio Files (Bypasses 5MB localStorage limit)
 // ===============================================================
@@ -149,7 +153,7 @@ export async function saveLessonToFirestore(lesson: Lesson): Promise<void> {
       ...lesson,
       updatedAt: Date.now(),
     } as Lesson);
-    await setDoc(doc(db, 'lessons', lesson.id), cleanLesson, { merge: true });
+    await setDoc(doc(db, 'lessons', lesson.id), cleanLesson);
   } catch (err) {
     console.warn('Could not sync lesson to Firestore:', err);
   }
@@ -181,8 +185,7 @@ export async function seedCurriculumToFirestore(
         sanitizeLessonForStorage({
           ...lesson,
           updatedAt: Date.now(),
-        } as Lesson),
-        { merge: true }
+        } as Lesson)
       );
     }
 
@@ -469,9 +472,15 @@ export function subscribeToFirestoreLessons(
 export function getAllLessons(): Lesson[] {
   if (typeof window === 'undefined') return INITIAL_LESSONS;
 
+  // Return authoritative in-memory cache if already loaded so deleted items never resurrect
+  if (lessonsMemoryCache && lessonsMemoryCache.length > 0) {
+    return lessonsMemoryCache;
+  }
+
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
+      lessonsMemoryCache = INITIAL_LESSONS;
       return INITIAL_LESSONS;
     }
     const customLessons: Lesson[] = JSON.parse(raw);
@@ -479,26 +488,27 @@ export function getAllLessons(): Lesson[] {
     const merged = INITIAL_LESSONS.map((initLesson) => {
       const match = customLessons.find((c) => c.id === initLesson.id);
       if (match) {
-        const mergedInitCards = initLesson.flashcards.map((ic) => {
-          const savedCard = match.flashcards?.find((c) => c.id === ic.id);
-          return savedCard ? { ...ic, ...savedCard } : ic;
-        });
-        const extraCards = (match.flashcards || []).filter(
-          (c) => !initLesson.flashcards.some((ic) => ic.id === c.id)
-        );
+        // Use match.flashcards as the authoritative list so deleted initial cards stay deleted!
+        const finalFlashcards = Array.isArray(match.flashcards)
+          ? match.flashcards.map((savedCard) => {
+              const initCard = initLesson.flashcards.find((ic) => ic.id === savedCard.id);
+              return initCard ? { ...initCard, ...savedCard } : savedCard;
+            })
+          : initLesson.flashcards;
 
-        const mergedInitReadings = initLesson.readingTexts.map((ir) => {
-          const savedReading = match.readingTexts?.find((r) => r.id === ir.id);
-          return savedReading ? { ...ir, ...savedReading } : ir;
-        });
-        const extraReadings = (match.readingTexts || []).filter(
-          (r) => !initLesson.readingTexts.some((ir) => ir.id === r.id)
-        );
+        // Use match.readingTexts as the authoritative list so deleted reading texts stay deleted!
+        const finalReadingTexts = Array.isArray(match.readingTexts)
+          ? match.readingTexts.map((savedReading) => {
+              const initReading = initLesson.readingTexts.find((ir) => ir.id === savedReading.id);
+              return initReading ? { ...initReading, ...savedReading } : savedReading;
+            })
+          : initLesson.readingTexts;
 
         return {
           ...initLesson,
-          flashcards: [...mergedInitCards, ...extraCards],
-          readingTexts: [...mergedInitReadings, ...extraReadings],
+          ...match,
+          flashcards: finalFlashcards,
+          readingTexts: finalReadingTexts,
         };
       }
       return initLesson;
@@ -508,14 +518,18 @@ export function getAllLessons(): Lesson[] {
       (c) => !INITIAL_LESSONS.some((il) => il.id === c.id)
     );
 
-    return [...merged, ...brandNewLessons];
+    const finalResult = [...merged, ...brandNewLessons];
+    lessonsMemoryCache = finalResult;
+    return finalResult;
   } catch (e) {
     console.error('Failed to parse custom lessons from localStorage', e);
+    lessonsMemoryCache = INITIAL_LESSONS;
     return INITIAL_LESSONS;
   }
 }
 
 function saveLessonsToLocalCache(lessons: Lesson[]): void {
+  lessonsMemoryCache = lessons;
   if (typeof window === 'undefined') return;
   try {
     const sanitized = lessons.map((les) => sanitizeLessonForStorage(les));
