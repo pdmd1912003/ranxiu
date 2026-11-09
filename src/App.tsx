@@ -9,6 +9,7 @@ import { EditItemModal, EditModalTarget } from './components/EditItemModal';
 import { StrokeOrderModal } from './components/StrokeOrderModal';
 import { TeacherLoginScreen } from './components/TeacherLoginScreen';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
+import { YctPortalApp } from './yct/YctPortalApp';
 import { LevelId, Lesson, FlashCard, ReadingText, TeacherSession } from './types';
 import { LEVELS } from './data/curriculumData';
 import {
@@ -17,7 +18,13 @@ import {
   subscribeToFirestoreLessons,
   seedCurriculumToFirestore,
 } from './utils/storage';
-import { getTeacherSession, logoutTeacher } from './utils/auth';
+import {
+  getTeacherSession,
+  logoutTeacher,
+  getActivePortal,
+  setActivePortal,
+  PortalType,
+} from './utils/auth';
 import { X, Cloud, RefreshCw } from 'lucide-react';
 
 const NAV_STATE_KEY = 'ranxiu_last_view_state';
@@ -68,25 +75,52 @@ function getInitialNavState(): NavState {
 
 export default function App() {
   const initialNav = useMemo(() => getInitialNavState(), []);
-  const [teacherSession, setTeacherSession] = useState<TeacherSession | null>(() => getTeacherSession());
+
+  // Quản lý 2 trang độc lập hoàn toàn (HSK & YCT), chọn trang trước khi đăng nhập
+  const [activePortal, setActivePortalState] = useState<PortalType | null>(() => {
+    const savedPortal = getActivePortal();
+    if (!savedPortal) return null;
+    const session = getTeacherSession(savedPortal);
+    return session ? savedPortal : null;
+  });
+  const [hskSession, setHskSession] = useState<TeacherSession | null>(() =>
+    getTeacherSession('hsk')
+  );
+  const [yctSession, setYctSession] = useState<TeacherSession | null>(() =>
+    getTeacherSession('yct')
+  );
+
   const [isChangePassModalOpen, setIsChangePassModalOpen] = useState<boolean>(false);
   const [lessons, setLessons] = useState<Lesson[]>([]);
-  const [firebaseStatus, setFirebaseStatus] = useState<'connecting' | 'connected' | 'seeding' | 'offline'>('connecting');
-  const [firebaseStatusDetail, setFirebaseStatusDetail] = useState<string>('Đang kết nối Firebase...');
+  const [firebaseStatus, setFirebaseStatus] = useState<
+    'connecting' | 'connected' | 'seeding' | 'offline'
+  >('connecting');
+  const [firebaseStatusDetail, setFirebaseStatusDetail] = useState<string>(
+    'Đang kết nối Firebase...'
+  );
   const [isSyncingManual, setIsSyncingManual] = useState<boolean>(false);
-  const [currentView, setCurrentView] = useState<'curriculum' | 'pinyin-chart' | 'lesson-tree' | 'lesson'>(initialNav.view);
+  const [currentView, setCurrentView] = useState<
+    'curriculum' | 'pinyin-chart' | 'lesson-tree' | 'lesson'
+  >(initialNav.view);
   const [activeLevelId, setActiveLevelId] = useState<LevelId>(initialNav.levelId);
-  const [selectedLessonId, setSelectedLessonId] = useState<string | undefined>(initialNav.lessonId);
-  const [initialLessonTab, setInitialLessonTab] = useState<LessonTabType>(initialNav.tab || 'vocab-list');
+  const [selectedLessonId, setSelectedLessonId] = useState<string | undefined>(
+    initialNav.lessonId
+  );
+  const [initialLessonTab, setInitialLessonTab] = useState<LessonTabType>(
+    initialNav.tab || 'vocab-list'
+  );
   const [isSlideModeActive, setIsSlideModeActive] = useState<boolean>(false);
   const [isTeacherModalOpen, setIsTeacherModalOpen] = useState<boolean>(false);
   const [teacherModalDefaultLevel, setTeacherModalDefaultLevel] = useState<LevelId>('hsk1');
-  const [teacherModalDefaultLesson, setTeacherModalDefaultLesson] = useState<string | undefined>(undefined);
+  const [teacherModalDefaultLesson, setTeacherModalDefaultLesson] = useState<string | undefined>(
+    undefined
+  );
   const [editTarget, setEditTarget] = useState<EditModalTarget>(null);
   const [strokeChar, setStrokeChar] = useState<string | null>(null);
 
-  // Lưu và đồng bộ trạng thái điều hướng vào URL và localStorage để khi F5 không bị mất màn hình
+  // Chỉ đồng bộ URL và Firestore của trang HSK khi đang ở trang HSK
   useEffect(() => {
+    if (activePortal !== 'hsk') return;
     const navState: NavState = {
       view: currentView,
       levelId: activeLevelId,
@@ -108,10 +142,11 @@ export default function App() {
     const qs = params.toString();
     const newUrl = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
     window.history.replaceState(navState, '', newUrl);
-  }, [currentView, activeLevelId, selectedLessonId, initialLessonTab]);
+  }, [activePortal, currentView, activeLevelId, selectedLessonId, initialLessonTab]);
 
-  // Hỗ trợ nút Back / Forward trên trình duyệt
+  // Hỗ trợ nút Back / Forward trên trình duyệt cho trang HSK
   useEffect(() => {
+    if (activePortal !== 'hsk') return;
     const handlePopState = () => {
       const state = getInitialNavState();
       setCurrentView(state.view);
@@ -122,10 +157,11 @@ export default function App() {
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  }, [activePortal]);
 
-  // Load lessons from storage on mount, subscribe to Firebase Firestore in real-time
+  // Load lessons from storage and subscribe to Firebase Firestore ONLY when inside HSK portal
   useEffect(() => {
+    if (activePortal !== 'hsk') return;
     const loaded = getAllLessons();
     setLessons(loaded);
 
@@ -142,7 +178,7 @@ export default function App() {
     return () => {
       unsubscribe();
     };
-  }, []);
+  }, [activePortal]);
 
   const handleManualSyncFirebase = async () => {
     setIsSyncingManual(true);
@@ -228,26 +264,60 @@ export default function App() {
     [lessons, activeLevelId]
   );
 
-  // Gác cổng xác thực: Nếu chưa đăng nhập thì hiện Trình đăng nhập giáo viên
-  if (!teacherSession) {
+  // 1. Chưa chọn trang hoặc chưa đăng nhập vào trang đã chọn -> Hiện màn hình Chọn Trang & Đăng Nhập
+  const isPortalAuthenticated =
+    (activePortal === 'hsk' && Boolean(hskSession)) ||
+    (activePortal === 'yct' && Boolean(yctSession));
+
+  if (!activePortal || !isPortalAuthenticated) {
     return (
       <TeacherLoginScreen
-        onLoginSuccess={(session) => {
-          setTeacherSession(session);
+        onLoginSuccess={(session, chosenPortal) => {
+          if (chosenPortal === 'yct') {
+            setYctSession(session);
+          } else {
+            setHskSession(session);
+          }
+          setActivePortal(chosenPortal);
+          setActivePortalState(chosenPortal);
         }}
       />
     );
   }
 
-  const handleLogout = () => {
-    logoutTeacher();
-    setTeacherSession(null);
+  // 2. Nếu giáo viên đã chọn và đăng nhập vào TRANG YCT -> Hiển thị độc lập hoàn toàn YctPortalApp
+  if (activePortal === 'yct' && yctSession) {
+    return (
+      <YctPortalApp
+        teacherSession={yctSession}
+        onUpdateTeacherName={(newName) => {
+          setYctSession((prev) => (prev ? { ...prev, teacherName: newName } : null));
+        }}
+        onLogout={() => {
+          logoutTeacher('yct');
+          setYctSession(null);
+          setActivePortalState(null);
+        }}
+        onSwitchPortal={() => {
+          logoutTeacher('yct');
+          setYctSession(null);
+          setActivePortalState(null);
+        }}
+      />
+    );
+  }
+
+  // 3. Nếu giáo viên đã chọn và đăng nhập vào TRANG HSK -> Hiển thị độc lập hoàn toàn trang HSK
+  const handleHskLogout = () => {
+    logoutTeacher('hsk');
+    setHskSession(null);
+    setActivePortalState(null);
   };
 
   return (
     <div className="min-h-screen text-zinc-900 flex flex-col selection:bg-[#FCE7F3] selection:text-black">
       {/* Top Bar - Hidden when in Slide Mode */}
-      {!isSlideModeActive && (
+      {!isSlideModeActive && hskSession && (
         <TopNav
           currentView={currentView}
           activeLevelId={activeLevelId}
@@ -257,9 +327,9 @@ export default function App() {
           onGoHome={handleGoHome}
           isSlideModeActive={isSlideModeActive}
           onToggleSlideMode={handleToggleSlideMode}
-          teacherName={teacherSession.teacherName}
+          teacherName={hskSession.teacherName}
           onOpenChangePassword={() => setIsChangePassModalOpen(true)}
-          onLogout={handleLogout}
+          onLogout={handleHskLogout}
         />
       )}
 
@@ -395,7 +465,7 @@ export default function App() {
         isOpen={isChangePassModalOpen}
         onClose={() => setIsChangePassModalOpen(false)}
         onNameUpdated={(newName) => {
-          setTeacherSession((prev) => (prev ? { ...prev, teacherName: newName } : null));
+          setHskSession((prev) => (prev ? { ...prev, teacherName: newName } : null));
         }}
       />
     </div>

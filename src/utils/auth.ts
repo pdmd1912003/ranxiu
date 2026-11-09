@@ -1,6 +1,7 @@
 /**
  * Teacher Authentication & Access Control Service
  * Đồng bộ Cloud Firestore (ranxiu-hsk-app) cho phép duy nhất 1 giáo viên quản trị trên mọi thiết bị
+ * Hỗ trợ 2 trang độc lập không tương tác với nhau: HSK (ranxiu_teacher_session) & YCT (ranxiu_yct_teacher_session)
  */
 
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -8,8 +9,12 @@ import { db } from '../lib/firebase';
 import type { TeacherSession } from '../types';
 
 const SESSION_STORAGE_KEY = 'ranxiu_teacher_session';
+const YCT_SESSION_STORAGE_KEY = 'ranxiu_yct_teacher_session';
+const ACTIVE_PORTAL_KEY = 'ranxiu_active_portal';
 const CLOUD_CONFIG_CACHE_KEY = 'ranxiu_cloud_auth_cache';
 const DEFAULT_SALT = 'ranxiu_salt_hsk_2026_teacher';
+
+export type PortalType = 'hsk' | 'yct';
 
 export const DEFAULT_TEACHER_NAME = 'Cô Nhiên Tú';
 export const DEFAULT_TEACHER_PASS = 'ranxiu';
@@ -19,6 +24,28 @@ export interface TeacherAuthConfig {
   username: string; // Tên đăng nhập / danh xưng giáo viên
   passwordHash: string; // SHA-256 hash có muối
   updatedAt?: number;
+}
+
+export function getActivePortal(): PortalType | null {
+  if (typeof window === 'undefined') return null;
+  const saved = localStorage.getItem(ACTIVE_PORTAL_KEY) || sessionStorage.getItem(ACTIVE_PORTAL_KEY);
+  if (saved === 'hsk' || saved === 'yct') return saved;
+  return null;
+}
+
+export function setActivePortal(portal: PortalType | null): void {
+  if (typeof window === 'undefined') return;
+  if (!portal) {
+    localStorage.removeItem(ACTIVE_PORTAL_KEY);
+    sessionStorage.removeItem(ACTIVE_PORTAL_KEY);
+  } else {
+    localStorage.setItem(ACTIVE_PORTAL_KEY, portal);
+    sessionStorage.setItem(ACTIVE_PORTAL_KEY, portal);
+  }
+}
+
+function getSessionKeyForPortal(portal: PortalType = 'hsk'): string {
+  return portal === 'yct' ? YCT_SESSION_STORAGE_KEY : SESSION_STORAGE_KEY;
 }
 
 /**
@@ -143,15 +170,16 @@ export async function verifyTeacherCredentials(
 }
 
 /**
- * Lấy phiên đăng nhập hiện tại từ trình duyệt
+ * Lấy phiên đăng nhập hiện tại từ trình duyệt theo từng cổng độc lập (HSK hoặc YCT)
  */
-export function getTeacherSession(): TeacherSession | null {
+export function getTeacherSession(portal: PortalType = 'hsk'): TeacherSession | null {
   if (typeof window === 'undefined') return null;
 
+  const key = getSessionKeyForPortal(portal);
   try {
-    let raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    let raw = localStorage.getItem(key);
     if (!raw) {
-      raw = sessionStorage.getItem(SESSION_STORAGE_KEY);
+      raw = sessionStorage.getItem(key);
     }
     if (!raw) return null;
 
@@ -166,12 +194,13 @@ export function getTeacherSession(): TeacherSession | null {
 }
 
 /**
- * Đăng nhập giáo viên
+ * Đăng nhập giáo viên vào trang đã chọn (HSK hoặc YCT độc lập)
  */
 export async function loginTeacher(
   username: string,
   password: string,
-  rememberMe: boolean = true
+  rememberMe: boolean = true,
+  portal: PortalType = 'hsk'
 ): Promise<{ success: boolean; message: string; session?: TeacherSession }> {
   const check = await verifyTeacherCredentials(username, password);
   if (!check.isValid || !check.currentConfig) {
@@ -189,13 +218,15 @@ export async function loginTeacher(
     rememberMe,
   };
 
+  const key = getSessionKeyForPortal(portal);
   const serialized = JSON.stringify(session);
   if (rememberMe) {
-    localStorage.setItem(SESSION_STORAGE_KEY, serialized);
+    localStorage.setItem(key, serialized);
   } else {
-    sessionStorage.setItem(SESSION_STORAGE_KEY, serialized);
-    localStorage.removeItem(SESSION_STORAGE_KEY);
+    sessionStorage.setItem(key, serialized);
+    localStorage.removeItem(key);
   }
+  setActivePortal(portal);
 
   return {
     success: true,
@@ -248,17 +279,20 @@ export async function updateTeacherCredentials(
     if (typeof window !== 'undefined') {
       localStorage.setItem(CLOUD_CONFIG_CACHE_KEY, JSON.stringify(updatedConfig));
 
-      // Cập nhật session nếu có
-      const currentSession = getTeacherSession();
-      if (currentSession) {
-        currentSession.teacherName = updatedConfig.username;
-        const serialized = JSON.stringify(currentSession);
-        if (currentSession.rememberMe) {
-          localStorage.setItem(SESSION_STORAGE_KEY, serialized);
-        } else {
-          sessionStorage.setItem(SESSION_STORAGE_KEY, serialized);
+      // Cập nhật session nếu có ở cả 2 cổng
+      (['hsk', 'yct'] as PortalType[]).forEach((portal) => {
+        const currentSession = getTeacherSession(portal);
+        if (currentSession) {
+          currentSession.teacherName = updatedConfig.username;
+          const key = getSessionKeyForPortal(portal);
+          const serialized = JSON.stringify(currentSession);
+          if (currentSession.rememberMe) {
+            localStorage.setItem(key, serialized);
+          } else {
+            sessionStorage.setItem(key, serialized);
+          }
         }
-      }
+      });
     }
 
     return {
@@ -276,12 +310,19 @@ export async function updateTeacherCredentials(
 }
 
 /**
- * Đăng xuất
+ * Đăng xuất khỏi cổng hiện tại (hoặc tất cả)
  */
-export function logoutTeacher(): void {
+export function logoutTeacher(portal?: PortalType): void {
   if (typeof window === 'undefined') return;
-  localStorage.removeItem(SESSION_STORAGE_KEY);
-  sessionStorage.removeItem(SESSION_STORAGE_KEY);
+  if (!portal || portal === 'hsk') {
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+    sessionStorage.removeItem(SESSION_STORAGE_KEY);
+  }
+  if (!portal || portal === 'yct') {
+    localStorage.removeItem(YCT_SESSION_STORAGE_KEY);
+    sessionStorage.removeItem(YCT_SESSION_STORAGE_KEY);
+  }
+  setActivePortal(null);
 }
 
 /**
