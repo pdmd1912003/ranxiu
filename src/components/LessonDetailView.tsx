@@ -12,16 +12,20 @@ import {
   Pencil,
   Brush,
   BookOpen,
+  CheckSquare,
 } from 'lucide-react';
-import { LevelInfo, Lesson, LevelId, FlashCard, ReadingText } from '../types';
+import { LevelInfo, Lesson, LevelId, FlashCard, ReadingText, GrammarNote, ComprehensiveExerciseSection } from '../types';
 import { FlashcardDeck } from './FlashcardDeck';
 import { ReadingTextRoom } from './ReadingTextRoom';
 import { HanziClickable } from './HanziClickable';
 import { playChineseAudio } from '../utils/speech';
 import { VocabWordFlashcardModal } from './VocabWordFlashcardModal';
 import { ReadingTextAudioBar } from './ReadingTextAudioBar';
+import { GrammarSectionView } from './GrammarSectionView';
+import { ComprehensiveExercisesView } from './ComprehensiveExercisesView';
+import { HSK1_DEFAULT_EXERCISES } from '../data/hsk1Exercises';
 
-export type LessonTabType = 'flashcards' | 'reading' | 'vocab-list' | 'grammar' | 'hanzi-writer';
+export type LessonTabType = 'flashcards' | 'reading' | 'vocab-list' | 'grammar' | 'exercises' | 'hanzi-writer';
 
 export interface ReadingTextVocabGroup {
   id: string;
@@ -177,6 +181,17 @@ interface LessonDetailViewProps {
     textId: string,
     updatedFields: Partial<ReadingText>
   ) => void;
+  onUpdateGrammarNote?: (
+    levelId: LevelId,
+    lessonId: string,
+    grammarIndex: number,
+    updatedNote: GrammarNote
+  ) => void;
+  onUpdateExercises?: (
+    levelId: LevelId,
+    lessonId: string,
+    updatedExercises: ComprehensiveExerciseSection[]
+  ) => void;
   onShowStroke?: (char: string) => void;
 }
 
@@ -195,6 +210,8 @@ export const LessonDetailView: React.FC<LessonDetailViewProps> = ({
   onAddCardToReadingText,
   onEditText,
   onUpdateTextAudio,
+  onUpdateGrammarNote,
+  onUpdateExercises,
   onShowStroke,
 }) => {
   const [currentLessonId, setCurrentLessonId] = useState<string>(
@@ -295,6 +312,11 @@ export const LessonDetailView: React.FC<LessonDetailViewProps> = ({
   }
 
   const grammarList = currentLesson.grammarNotes || currentLesson.grammarPoints || [];
+  const currentLessonExercises = currentLesson.exercises || HSK1_DEFAULT_EXERCISES[currentLesson.id] || [];
+  const totalExerciseCount = currentLessonExercises.reduce(
+    (acc, s) => acc + (s.questions?.length || 0),
+    0
+  );
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
@@ -425,6 +447,18 @@ export const LessonDetailView: React.FC<LessonDetailViewProps> = ({
         )}
 
         <button
+          onClick={() => handleSwitchTab('exercises')}
+          className={`flex-1 py-2 px-3 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-1.5 whitespace-nowrap ${
+            activeTab === 'exercises'
+              ? 'bg-[#FEF08A] text-black border border-black'
+              : 'text-zinc-700 hover:bg-[#FAF6EE]'
+          }`}
+        >
+          <CheckSquare className="w-4 h-4" />
+          <span>5. Bài Tập ({totalExerciseCount})</span>
+        </button>
+
+        <button
           onClick={() => handleSwitchTab('hanzi-writer')}
           className={`flex-1 py-2 px-3 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-1.5 whitespace-nowrap ${
             activeTab === 'hanzi-writer'
@@ -433,7 +467,7 @@ export const LessonDetailView: React.FC<LessonDetailViewProps> = ({
           }`}
         >
           <Brush className="w-4 h-4" />
-          <span>5. Tập Viết ({lessonCharacters.length})</span>
+          <span>6. Tập Viết ({lessonCharacters.length})</span>
         </button>
       </div>
 
@@ -762,68 +796,25 @@ export const LessonDetailView: React.FC<LessonDetailViewProps> = ({
       )}
 
       {activeTab === 'grammar' && grammarList.length > 0 && (
-        <div className="space-y-4">
-          {grammarList.map((note, idx) => (
-            <div key={note.id || idx} className="cute-card p-6 space-y-3">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-black px-2.5 py-0.5 rounded-md bg-[#DCFCE7] border border-black text-black">
-                  Điểm ngữ pháp {idx + 1}
-                </span>
-              </div>
+        <GrammarSectionView
+          grammarList={grammarList}
+          levelId={levelInfo.id}
+          lessonId={currentLesson.id}
+          lessonTitle={currentLesson.titleVi}
+          onUpdateGrammarNote={onUpdateGrammarNote}
+          onShowStroke={onShowStroke}
+        />
+      )}
 
-              <h3 className="text-lg font-black text-black">{note.title}</h3>
-              <p className="text-xs sm:text-sm text-zinc-700 leading-relaxed font-medium">
-                {note.explanation}
-              </p>
-
-              {note.structure && (
-                <div className="bg-[#FAF6EE] border-2 border-black rounded-2xl p-3.5 font-mono text-xs sm:text-sm font-bold text-black shadow-[2px_2px_0px_#000]">
-                  <span className="text-zinc-500 font-sans block mb-1 font-semibold">
-                    Cấu trúc:
-                  </span>
-                  {note.structure}
-                </div>
-              )}
-
-              {note.examples && note.examples.length > 0 && (
-                <div className="space-y-2 pt-2">
-                  <span className="text-xs font-black text-zinc-700 block">Câu ví dụ:</span>
-                  {note.examples.map((ex, eIdx) => {
-                    const zhText = ex.zh || ex.hanzi || '';
-                    const viText = ex.vi || ex.meaning || '';
-                    return (
-                      <div
-                        key={eIdx}
-                        className="p-3.5 bg-[#FAF6EE] rounded-xl border-2 border-black/15 hover:border-black transition-colors flex items-center justify-between gap-3 text-xs sm:text-sm"
-                      >
-                        <div className="space-y-0.5">
-                          <div>
-                            <HanziClickable
-                              text={zhText}
-                              onShowStroke={onShowStroke || (() => {})}
-                              className="font-hanzi text-base sm:text-lg font-normal text-black mr-2"
-                            />
-                            <span className="font-mono text-emerald-800 font-bold mr-2">
-                              {ex.pinyin}
-                            </span>
-                          </div>
-                          <div className="text-zinc-600 font-medium">— {viText}</div>
-                        </div>
-                        <button
-                          onClick={() => playChineseAudio(zhText)}
-                          className="cute-btn p-2 bg-[#FCE7F3] hover:bg-pink-200 rounded-xl text-black border-2 border-black shrink-0"
-                          title="Nghe câu ví dụ"
-                        >
-                          <Volume2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+      {activeTab === 'exercises' && (
+        <ComprehensiveExercisesView
+          exercises={currentLessonExercises}
+          levelId={levelInfo.id}
+          lessonId={currentLesson.id}
+          lessonTitle={currentLesson.titleVi}
+          onUpdateExercises={onUpdateExercises}
+          onShowStroke={onShowStroke}
+        />
       )}
 
       {activeTab === 'hanzi-writer' && (

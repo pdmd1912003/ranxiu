@@ -10,11 +10,13 @@ import { StrokeOrderModal } from './components/StrokeOrderModal';
 import { TeacherLoginScreen } from './components/TeacherLoginScreen';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { YctPortalApp } from './yct/YctPortalApp';
-import { LevelId, Lesson, FlashCard, ReadingText, TeacherSession } from './types';
+import { LevelId, Lesson, FlashCard, ReadingText, GrammarNote, ComprehensiveExerciseSection, TeacherSession } from './types';
 import { LEVELS } from './data/curriculumData';
 import {
   getAllLessons,
   updateReadingText,
+  updateGrammarNote,
+  updateLessonExercises,
   subscribeToFirestoreLessons,
   seedCurriculumToFirestore,
 } from './utils/storage';
@@ -275,6 +277,25 @@ export default function App() {
     setLessons(updated);
   };
 
+  const handleUpdateGrammarNote = (
+    levelId: LevelId,
+    lessonId: string,
+    grammarIndex: number,
+    updatedNote: GrammarNote
+  ) => {
+    const updated = updateGrammarNote(levelId, lessonId, grammarIndex, updatedNote);
+    setLessons(updated);
+  };
+
+  const handleUpdateExercises = (
+    levelId: LevelId,
+    lessonId: string,
+    updatedExercises: ComprehensiveExerciseSection[]
+  ) => {
+    const updated = updateLessonExercises(levelId, lessonId, updatedExercises);
+    setLessons(updated);
+  };
+
   const currentLevelInfo = useMemo(
     () => LEVELS.find((l) => l.id === activeLevelId) || LEVELS[0],
     [activeLevelId]
@@ -413,6 +434,8 @@ export default function App() {
             onAddCardToReadingText={handleOpenAddCardToReadingText}
             onEditText={handleOpenEditText}
             onUpdateTextAudio={handleUpdateTextAudio}
+            onUpdateGrammarNote={handleUpdateGrammarNote}
+            onUpdateExercises={handleUpdateExercises}
             isSlideModeActive={isSlideModeActive}
             onToggleSlideMode={handleToggleSlideMode}
             onShowStroke={setStrokeChar}

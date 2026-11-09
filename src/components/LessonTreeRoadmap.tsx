@@ -198,6 +198,8 @@ const LessonNodeCard: React.FC<LessonNodeCardProps> = ({ lesson, onSelectLesson 
         return 'bg-[#DCFCE7] text-black hover:bg-emerald-200';
       case 'grammar':
         return 'bg-[#FAF6EE] text-black hover:bg-zinc-200';
+      case 'exercises':
+        return 'bg-[#FEF08A] text-black hover:bg-yellow-200';
       default:
         return 'bg-white text-black hover:bg-[#FAF6EE]';
     }
@@ -260,6 +262,8 @@ const LessonNodeCard: React.FC<LessonNodeCardProps> = ({ lesson, onSelectLesson 
                 onSelectLesson(lesson, 'reading');
               } else if (pill.action === 'grammar') {
                 onSelectLesson(lesson, 'grammar');
+              } else if (pill.action === 'exercises') {
+                onSelectLesson(lesson, 'exercises');
               } else if (pill.action === 'hanzi-writer') {
                 onSelectLesson(lesson, 'hanzi-writer');
               } else {
@@ -273,6 +277,18 @@ const LessonNodeCard: React.FC<LessonNodeCardProps> = ({ lesson, onSelectLesson 
             {pill.label}
           </button>
         ))}
+
+        {/* Exercises quick-launch pill */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelectLesson(lesson, 'exercises');
+          }}
+          className="px-2.5 py-1 rounded-xl text-[11px] font-bold border border-black shadow-[1px_1px_0px_#000] bg-[#FEF08A] text-black hover:bg-yellow-200 flex items-center gap-1 transition-transform active:translate-x-0.5 active:translate-y-0.5"
+        >
+          <span>Bài tập</span>
+        </button>
 
         {/* Hanzi Writer quick-launch pill */}
         <button

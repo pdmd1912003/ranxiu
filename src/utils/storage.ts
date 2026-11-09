@@ -8,8 +8,9 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { Lesson, FlashCard, ReadingText, LevelId } from '../types';
+import { Lesson, FlashCard, ReadingText, LevelId, GrammarNote, ComprehensiveExerciseSection } from '../types';
 import { INITIAL_LESSONS, LEVELS, NEW_HSK1_CHARACTERS } from '../data/curriculumData';
+import { HSK1_DEFAULT_EXERCISES } from '../data/hsk1Exercises';
 
 const STORAGE_KEY = 'ranxiu_custom_lessons_v3';
 const IDB_NAME = 'ranxiu_audio_cache_v1';
@@ -443,10 +444,21 @@ export function subscribeToFirestoreLessons(
       // Merge with INITIAL_LESSONS so any newly added lessons in code are also present
       const mergedMap = new Map<string, Lesson>();
       for (const initLes of INITIAL_LESSONS) {
-        mergedMap.set(initLes.id, initLes);
+        mergedMap.set(initLes.id, {
+          ...initLes,
+          exercises: initLes.exercises || HSK1_DEFAULT_EXERCISES[initLes.id] || [],
+        });
       }
       for (const fsLes of firestoreLessons) {
-        mergedMap.set(fsLes.id, fsLes);
+        const init = mergedMap.get(fsLes.id);
+        const resolvedExercises = (fsLes.exercises && fsLes.exercises.length > 0)
+          ? fsLes.exercises
+          : (init?.exercises || HSK1_DEFAULT_EXERCISES[fsLes.id] || []);
+        mergedMap.set(fsLes.id, {
+          ...init,
+          ...fsLes,
+          exercises: resolvedExercises,
+        });
       }
 
       const mergedList = Array.from(mergedMap.values()).sort((a, b) => {
@@ -509,9 +521,15 @@ export function getAllLessons(): Lesson[] {
           ...match,
           flashcards: finalFlashcards,
           readingTexts: finalReadingTexts,
+          exercises: (match && Array.isArray(match.exercises))
+            ? match.exercises
+            : (initLesson.exercises || HSK1_DEFAULT_EXERCISES[initLesson.id] || []),
         };
       }
-      return initLesson;
+      return {
+        ...initLesson,
+        exercises: initLesson.exercises || HSK1_DEFAULT_EXERCISES[initLesson.id] || [],
+      };
     });
 
     const brandNewLessons = customLessons.filter(
@@ -724,6 +742,66 @@ export function deleteReadingText(
       const updated = {
         ...les,
         readingTexts: les.readingTexts.filter((r) => r.id !== textId),
+      };
+      targetLesson = updated;
+      return updated;
+    }
+    return les;
+  });
+
+  saveLessonsToLocalCache(updatedLessons);
+  if (targetLesson) {
+    saveLessonToFirestore(targetLesson);
+  }
+  return updatedLessons;
+}
+
+export function updateGrammarNote(
+  levelId: LevelId,
+  lessonId: string,
+  grammarIndex: number,
+  updatedNote: GrammarNote
+): Lesson[] {
+  const allLessons = getAllLessons();
+  let targetLesson: Lesson | null = null;
+
+  const updatedLessons = allLessons.map((les) => {
+    if (les.id === lessonId && les.levelId === levelId) {
+      const currentNotes = les.grammarNotes || les.grammarPoints || [];
+      const nextNotes = currentNotes.map((note, idx) =>
+        idx === grammarIndex ? { ...note, ...updatedNote } : note
+      );
+      const updated: Lesson = {
+        ...les,
+        grammarNotes: nextNotes,
+        ...(les.grammarPoints ? { grammarPoints: nextNotes } : {}),
+      };
+      targetLesson = updated;
+      return updated;
+    }
+    return les;
+  });
+
+  saveLessonsToLocalCache(updatedLessons);
+  if (targetLesson) {
+    saveLessonToFirestore(targetLesson);
+  }
+  return updatedLessons;
+}
+
+export function updateLessonExercises(
+  levelId: LevelId,
+  lessonId: string,
+  updatedExercises: ComprehensiveExerciseSection[]
+): Lesson[] {
+  const allLessons = getAllLessons();
+  let targetLesson: Lesson | null = null;
+
+  const updatedLessons = allLessons.map((les) => {
+    if (les.id === lessonId && les.levelId === levelId) {
+      const updated: Lesson = {
+        ...les,
+        exercises: updatedExercises,
       };
       targetLesson = updated;
       return updated;

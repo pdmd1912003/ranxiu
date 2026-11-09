@@ -80,8 +80,34 @@ export interface GrammarNote {
 
 export interface LessonActionPill {
   label: string;
-  action: 'vocab' | 'flashcard' | 'reading' | 'quiz' | 'grammar' | 'hanzi-writer';
+  action: 'vocab' | 'flashcard' | 'reading' | 'quiz' | 'grammar' | 'exercises' | 'hanzi-writer';
   color: 'cyan' | 'pink' | 'green' | 'teal' | 'yellow' | 'purple';
+}
+
+export interface ExerciseOption {
+  key: string; // 'A', 'B', 'C', 'D', 'E'
+  text: string; // '哪', '吗', '谁', '中国人', '想'
+  pinyin?: string;
+  meaning?: string;
+}
+
+export interface ExerciseQuestion {
+  id: string;
+  questionNumber?: number; // (1), (2), (3)...
+  promptZh: string; // "你工作忙______？" hoặc "白家月: 你是______国人？\n李文: 我是______。"
+  promptPinyin?: string;
+  promptVi?: string; // "Công việc của bạn có bận không?"
+  options?: ExerciseOption[];
+  answer: string; // 'B' hoặc '吗' hoặc 'A, D'
+  explanation?: string; // Giải thích chi tiết
+}
+
+export interface ComprehensiveExerciseSection {
+  id: string;
+  title: string; // "I. 选词填空 · Chọn từ thích hợp điền vào chỗ trống"
+  description?: string;
+  wordBank?: ExerciseOption[]; // Bảng từ cho sẵn: A, B, C, D, E...
+  questions: ExerciseQuestion[];
 }
 
 export interface Lesson {
@@ -100,6 +126,7 @@ export interface Lesson {
   readingTexts: ReadingText[];
   grammarNotes?: GrammarNote[];
   grammarPoints?: GrammarNote[];
+  exercises?: ComprehensiveExerciseSection[];
   isCustom?: boolean;
 }
 

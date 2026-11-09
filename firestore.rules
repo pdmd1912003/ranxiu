@@ -134,7 +134,7 @@ service cloud.firestore {
       let allowedFields = [
         'id', 'levelId', 'lessonNumber', 'buoiNumber', 'durationMinutes',
         'status', 'titleVi', 'titleZh', 'titlePinyin', 'shortDesc',
-        'pills', 'flashcards', 'readingTexts', 'grammarNotes', 'grammarPoints',
+        'pills', 'flashcards', 'readingTexts', 'grammarNotes', 'grammarPoints', 'exercises',
         'isCustom', 'updatedAt', 'createdAt'
       ];
       let requiredFields = [
@@ -160,6 +160,7 @@ service cloud.firestore {
         isValidList(data.readingTexts, 100) &&
         (!('grammarNotes' in data) || isValidList(data.grammarNotes, 100)) &&
         (!('grammarPoints' in data) || isValidList(data.grammarPoints, 100)) &&
+        (!('exercises' in data) || isValidList(data.exercises, 100)) &&
         (!('isCustom' in data) || data.isCustom is bool) &&
         isValidOptionalTimestampOrNumber(data, 'updatedAt') &&
         isValidOptionalTimestampOrNumber(data, 'createdAt');
